@@ -1,14 +1,11 @@
 import streamlit as st
-import base64
-import os
-import json
-import hashlib
-import time
+import base64, os, json, hashlib, time, struct
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import padding as sym_padding, hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, ec, padding as asym_padding
+from cryptography.hazmat.primitives import padding as sym_padding, hashes, serialization, hmac
+from cryptography.hazmat.primitives.asymmetric import rsa, padding as asym_padding
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 # ─── Page Config ────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -18,599 +15,671 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-
-# ─── Enhanced Styling & Animations ──────────────────────────────────────────
+# ─── Styling ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap');
 
 :root {
-    --bg: #0a0c10;
-    --surface: #0f1318;
-    --surface2: #151a22;
-    --border: #1e2a38;
+    --bg: #07090e;
+    --surface: #0d1117;
+    --surface2: #111820;
+    --border: #1c2535;
     --accent: #00e5ff;
-    --accent2: #7b2fff;
-    --green: #00ff88;
-    --red: #ff3c6e;
+    --accent2: #7c3aed;
+    --green: #00ffaa;
+    --red: #ff4466;
+    --yellow: #fbbf24;
     --text: #c8d6e5;
     --muted: #4a6080;
 }
-
 html, body, [class*="css"] {
     font-family: 'Rajdhani', sans-serif;
-    background: linear-gradient(120deg, #0a0c10 0%, #151a22 100%) !important;
+    background: var(--bg) !important;
     color: var(--text) !important;
-    min-height: 100vh;
-    overflow-x: hidden;
 }
-
-.stApp { background: transparent !important; }
-
-body::before {
-    content: '';
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    z-index: -1;
-    background: radial-gradient(circle at 80% 10%, rgba(0,229,255,0.08) 0, transparent 60%),
-                radial-gradient(circle at 20% 90%, rgba(123,47,255,0.08) 0, transparent 60%);
-    animation: bgmove 12s linear infinite alternate;
-}
-@keyframes bgmove {
-    0% { background-position: 80% 10%, 20% 90%; }
-    100% { background-position: 60% 20%, 40% 80%; }
-}
-
+.stApp { background: var(--bg) !important; }
 #MainMenu, footer, header { visibility: hidden; }
 
 .hero {
     text-align: center;
-    padding: 2.5rem 1rem 1.5rem;
-    margin-bottom: 2rem;
-    background: linear-gradient(135deg, #0f1318 0%, #0d1520 100%);
+    padding: 2.8rem 1rem 2rem;
+    background: linear-gradient(160deg, #0d1117 0%, #0a111c 100%);
     border: 1px solid var(--border);
-    border-radius: 2px;
-    position: relative;
-    overflow: hidden;
-    box-shadow: 0 4px 32px 0 rgba(0,229,255,0.08);
-    animation: fadein 1.2s cubic-bezier(.4,0,.2,1);
-}
-.hero::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(ellipse at 50% 0%, rgba(0,229,255,0.07) 0%, transparent 70%);
-    pointer-events: none;
+    border-radius: 4px;
+    margin-bottom: 2rem;
+    box-shadow: 0 0 60px rgba(0,229,255,0.05);
+    animation: fadein 1s ease;
 }
 .hero-title {
     font-family: 'Share Tech Mono', monospace;
-    font-size: 2.8rem;
+    font-size: 3rem;
     color: var(--accent);
-    letter-spacing: 0.15em;
-    text-shadow: 0 0 30px rgba(0,229,255,0.4);
+    text-shadow: 0 0 40px rgba(0,229,255,0.5);
+    letter-spacing: 0.12em;
     margin: 0;
-    animation: fadein 1.5s cubic-bezier(.4,0,.2,1);
 }
 .hero-sub {
     color: var(--muted);
-    font-size: 0.85rem;
-    letter-spacing: 0.3em;
+    font-size: 0.78rem;
+    letter-spacing: 0.35em;
     text-transform: uppercase;
-    margin-top: 0.4rem;
-    animation: fadein 2s cubic-bezier(.4,0,.2,1);
+    margin-top: 0.5rem;
 }
-
 @keyframes fadein {
-    from { opacity: 0; transform: translateY(30px); }
-    to   { opacity: 1; transform: none; }
+    from { opacity:0; transform:translateY(20px); }
+    to   { opacity:1; transform:none; }
 }
 
-.step-label {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 0.7rem;
-    color: var(--accent);
-    letter-spacing: 0.25em;
-    text-transform: uppercase;
-    margin-bottom: 0.3rem;
-    opacity: 0.8;
-}
-
-.info-card {
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--accent);
-    padding: 1.2rem 1.5rem;
-    border-radius: 2px;
-    margin: 1rem 0;
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 0.82rem;
-    line-height: 1.8;
-    word-break: break-all;
-    box-shadow: 0 2px 16px 0 rgba(0,229,255,0.04);
-    transition: box-shadow 0.3s, border-left-color 0.3s, transform 0.2s;
-    animation: fadein 1.2s cubic-bezier(.4,0,.2,1);
-}
-.info-card:hover {
-    box-shadow: 0 6px 32px 0 rgba(0,229,255,0.13);
-    border-left-color: var(--accent2);
-    transform: translateY(-2px) scale(1.01);
-}
-.info-card.success { border-left-color: var(--green); }
-.info-card.warning { border-left-color: #ffb300; }
-.info-card.error   { border-left-color: var(--red); }
-
-.card-label {
-    color: var(--muted);
-    font-size: 0.68rem;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    margin-bottom: 0.3rem;
-}
-.card-value { color: var(--accent); }
-.card-value.green { color: var(--green); }
-.card-value.white { color: #e8f4ff; }
-
-.divider {
-    border: none;
-    border-top: 1px solid var(--border);
-    margin: 1.5rem 0;
-    opacity: 0.7;
-    animation: fadein 1.2s cubic-bezier(.4,0,.2,1);
-}
-
-.stSelectbox label, .stRadio label, .stTextArea label, .stTextInput label {
-    color: var(--muted) !important;
-    font-family: 'Share Tech Mono', monospace !important;
-    font-size: 0.75rem !important;
-    letter-spacing: 0.15em !important;
-    text-transform: uppercase !important;
-}
-
-div[data-baseweb="select"] > div {
-    background-color: var(--surface2) !important;
-    border-color: var(--border) !important;
-    border-radius: 2px !important;
-    color: var(--text) !important;
-}
-
-textarea, input[type="text"], input[type="password"] {
-    background-color: var(--surface2) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 2px !important;
-    color: var(--text) !important;
-    font-family: 'Share Tech Mono', monospace !important;
-    font-size: 0.82rem !important;
-    transition: box-shadow 0.2s;
-}
-textarea:focus, input[type="text"]:focus, input[type="password"]:focus {
-    box-shadow: 0 0 0 2px var(--accent2);
-    outline: none;
-}
-
-.stButton > button {
-    background: linear-gradient(90deg, rgba(0,229,255,0.08) 0%, rgba(123,47,255,0.08) 100%) !important;
-    border: 1px solid var(--accent) !important;
-    color: var(--accent) !important;
-    font-family: 'Share Tech Mono', monospace !important;
-    letter-spacing: 0.2em !important;
-    text-transform: uppercase !important;
-    border-radius: 2px !important;
-    padding: 0.5rem 2rem !important;
-    transition: all 0.2s ease !important;
-    width: 100%;
-    font-size: 1.1rem !important;
-    box-shadow: 0 2px 16px 0 rgba(0,229,255,0.04);
-    cursor: pointer;
-    animation: fadein 1.2s cubic-bezier(.4,0,.2,1);
-}
-.stButton > button:hover {
-    background: linear-gradient(90deg, rgba(0,229,255,0.18) 0%, rgba(123,47,255,0.18) 100%) !important;
-    box-shadow: 0 0 20px rgba(0,229,255,0.2) !important;
-    color: #fff !important;
-    border-color: var(--accent2) !important;
-    transform: scale(1.03);
-}
-
-div[data-baseweb="radio"] label {
-    font-family: 'Share Tech Mono', monospace !important;
-    font-size: 0.85rem !important;
-    color: var(--text) !important;
-}
-
-.section-header {
+.sec-header {
     display: flex;
     align-items: center;
     gap: 0.8rem;
-    margin: 1.8rem 0 0.8rem;
-    animation: fadein 1.2s cubic-bezier(.4,0,.2,1);
+    margin: 2rem 0 0.8rem;
 }
-.section-num {
+.sec-num {
     font-family: 'Share Tech Mono', monospace;
     font-size: 0.65rem;
     color: var(--accent);
     background: rgba(0,229,255,0.08);
-    border: 1px solid rgba(0,229,255,0.3);
-    padding: 0.15rem 0.5rem;
+    border: 1px solid rgba(0,229,255,0.25);
+    padding: 0.15rem 0.55rem;
     border-radius: 2px;
 }
-.section-title {
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.25em;
+.sec-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.3em;
     text-transform: uppercase;
     color: var(--muted);
 }
 
-.badge {
-    display: inline-block;
+.card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 1.1rem 1.4rem;
+    border-radius: 2px;
+    margin: 0.8rem 0;
     font-family: 'Share Tech Mono', monospace;
-    font-size: 0.65rem;
-    padding: 0.1rem 0.6rem;
-    border-radius: 1px;
-    letter-spacing: 0.1em;
+    font-size: 0.8rem;
+    line-height: 1.8;
+    word-break: break-all;
+    transition: box-shadow 0.25s, transform 0.2s;
+    animation: fadein 0.8s ease;
 }
-.badge-blue  { background: rgba(0,229,255,0.1);  color: var(--accent); border: 1px solid rgba(0,229,255,0.3); }
-.badge-green { background: rgba(0,255,136,0.1);  color: var(--green);  border: 1px solid rgba(0,255,136,0.3); }
-.badge-red   { background: rgba(255,60,110,0.1); color: var(--red);    border: 1px solid rgba(255,60,110,0.3); }
+.card:hover { box-shadow: 0 4px 28px rgba(0,229,255,0.1); transform: translateY(-1px); }
+.card.success { border-left-color: var(--green); }
+.card.warn    { border-left-color: var(--yellow); }
+.card.error   { border-left-color: var(--red); }
+.card.purple  { border-left-color: var(--accent2); }
+
+.lbl { color: var(--muted); font-size: 0.65rem; letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 0.25rem; }
+.val       { color: var(--accent); }
+.val.green { color: var(--green); }
+.val.white { color: #e8f4ff; }
+.val.yellow { color: var(--yellow); }
+
+hr.div {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 1.6rem 0;
+    opacity: 0.6;
+}
+
+/* inputs */
+.stSelectbox label, .stRadio label, .stTextArea label, .stTextInput label {
+    color: var(--muted) !important;
+    font-family: 'Share Tech Mono', monospace !important;
+    font-size: 0.72rem !important;
+    letter-spacing: 0.15em !important;
+    text-transform: uppercase !important;
+}
+div[data-baseweb="select"] > div {
+    background: var(--surface2) !important;
+    border-color: var(--border) !important;
+    border-radius: 2px !important;
+    color: var(--text) !important;
+}
+textarea, input[type="text"], input[type="password"] {
+    background: var(--surface2) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 2px !important;
+    color: var(--text) !important;
+    font-family: 'Share Tech Mono', monospace !important;
+    font-size: 0.8rem !important;
+}
+
+/* buttons */
+.stButton > button {
+    background: linear-gradient(90deg, rgba(0,229,255,0.07), rgba(124,58,237,0.07)) !important;
+    border: 1px solid var(--accent) !important;
+    color: var(--accent) !important;
+    font-family: 'Share Tech Mono', monospace !important;
+    letter-spacing: 0.18em !important;
+    text-transform: uppercase !important;
+    border-radius: 2px !important;
+    padding: 0.5rem 2rem !important;
+    width: 100%;
+    font-size: 1rem !important;
+    transition: all 0.2s ease !important;
+}
+.stButton > button:hover {
+    background: linear-gradient(90deg, rgba(0,229,255,0.18), rgba(124,58,237,0.18)) !important;
+    box-shadow: 0 0 18px rgba(0,229,255,0.2) !important;
+    color: #fff !important;
+    border-color: var(--accent2) !important;
+    transform: scale(1.02);
+}
+
+/* algo grid */
+.algo-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.6rem;
+    margin: 0.8rem 0;
+}
+.algo-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'Share Tech Mono', monospace;
+}
+.algo-card:hover { border-color: var(--accent); box-shadow: 0 0 12px rgba(0,229,255,0.1); }
+.algo-card.selected { border-color: var(--accent); background: rgba(0,229,255,0.06); }
+.algo-name { color: var(--accent); font-size: 0.8rem; font-weight: 700; }
+.algo-desc { color: var(--muted); font-size: 0.65rem; margin-top: 0.2rem; }
+
+/* summary */
+.summary-wrap {
+    background: linear-gradient(135deg, #0d1117 0%, #0a111c 100%);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2rem;
+    margin: 1.5rem 0;
+    animation: fadein 0.8s ease;
+}
+.summary-title {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 1.2rem;
+    color: var(--green);
+    letter-spacing: 0.15em;
+    margin-bottom: 1.5rem;
+    text-align: center;
+    text-shadow: 0 0 20px rgba(0,255,170,0.3);
+}
+.summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.s-item { background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 2px; padding: 0.8rem 1rem; }
+.s-item.full { grid-column: 1/-1; }
+.s-lbl { color: var(--muted); font-family: 'Share Tech Mono', monospace; font-size: 0.62rem; letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 0.3rem; }
+.s-val { color: var(--accent); font-family: 'Share Tech Mono', monospace; font-size: 0.82rem; word-break: break-all; }
+.s-val.green { color: var(--green); }
+.s-val.white { color: #e8f4ff; font-size: 0.9rem; }
+.s-val.yellow { color: var(--yellow); }
+
+.flow-box {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 1rem 1.2rem;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    line-height: 2;
+    margin-top: 0.5rem;
+}
+.flow-step { color: var(--text); }
+.flow-arrow { color: var(--accent); margin: 0 0.5rem; }
 </style>
 """, unsafe_allow_html=True)
 
-# ─── Helpers ────────────────────────────────────────────────────────────────
-
+# ─── Helpers ─────────────────────────────────────────────────────────────────
 def b64e(b: bytes) -> str: return base64.b64encode(b).decode()
 def b64d(s: str) -> bytes: return base64.b64decode(s.encode())
 
-def derive_key(password: str, salt: bytes, length: int) -> bytes:
+def derive_key(password: str, salt: bytes, length: int, method: str = "pbkdf2") -> bytes:
+    if method == "scrypt":
+        kdf = Scrypt(salt=salt, length=length, n=2**14, r=8, p=1, backend=default_backend())
+        return kdf.derive(password.encode())
     kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=length, salt=salt,
                      iterations=200_000, backend=default_backend())
     return kdf.derive(password.encode())
 
-# ── Symmetric encrypt ────────────────────────────────────────────────────────
-def sym_encrypt(plaintext: str, key_str: str, level: str):
+# ─── Algorithm Definitions ───────────────────────────────────────────────────
+ALGORITHMS = {
+    "AES-128-CBC": {
+        "desc": "AES 128-bit · CBC Mode",
+        "detail": "Block cipher, 128-bit key, PKCS7 padding, CBC chaining",
+        "key_len": 16, "kdf": "pbkdf2",
+        "flow": ["Passphrase", "PBKDF2-SHA256 (200k iter)", "128-bit key + 16B IV", "PKCS7 Pad", "AES-CBC Encrypt", "Base64 Output"]
+    },
+    "AES-256-CBC": {
+        "desc": "AES 256-bit · CBC Mode",
+        "detail": "Block cipher, 256-bit key, PKCS7 padding, CBC chaining",
+        "key_len": 32, "kdf": "pbkdf2",
+        "flow": ["Passphrase", "PBKDF2-SHA256 (200k iter)", "256-bit key + 16B IV", "PKCS7 Pad", "AES-CBC Encrypt", "Base64 Output"]
+    },
+    "AES-256-GCM": {
+        "desc": "AES 256-bit · GCM Mode",
+        "detail": "Authenticated encryption, 256-bit key, 12B nonce, 16B auth tag",
+        "key_len": 32, "kdf": "pbkdf2",
+        "flow": ["Passphrase", "PBKDF2-SHA256 (200k iter)", "256-bit key + 12B nonce", "AES-GCM Encrypt", "Auth Tag appended", "Base64 Output"]
+    },
+    "AES-128-GCM": {
+        "desc": "AES 128-bit · GCM Mode",
+        "detail": "Authenticated encryption, 128-bit key, 12B nonce, 16B auth tag",
+        "key_len": 16, "kdf": "pbkdf2",
+        "flow": ["Passphrase", "PBKDF2-SHA256 (200k iter)", "128-bit key + 12B nonce", "AES-GCM Encrypt", "Auth Tag appended", "Base64 Output"]
+    },
+    "ChaCha20": {
+        "desc": "ChaCha20 Stream Cipher",
+        "detail": "Stream cipher, 256-bit key, 16B nonce, no padding needed",
+        "key_len": 32, "kdf": "pbkdf2",
+        "flow": ["Passphrase", "PBKDF2-SHA256 (200k iter)", "256-bit key + 16B nonce", "ChaCha20 Stream Encrypt", "Base64 Output"]
+    },
+    "ChaCha20-Scrypt": {
+        "desc": "ChaCha20 + Scrypt KDF",
+        "detail": "ChaCha20 stream cipher with memory-hard Scrypt key derivation",
+        "key_len": 32, "kdf": "scrypt",
+        "flow": ["Passphrase", "Scrypt (N=16384, r=8, p=1)", "256-bit key + 16B nonce", "ChaCha20 Stream Encrypt", "Base64 Output"]
+    },
+    "AES-256-CTR": {
+        "desc": "AES 256-bit · CTR Mode",
+        "detail": "Counter mode, 256-bit key, turns AES into stream cipher",
+        "key_len": 32, "kdf": "pbkdf2",
+        "flow": ["Passphrase", "PBKDF2-SHA256 (200k iter)", "256-bit key + 16B nonce", "AES-CTR Stream Encrypt", "Base64 Output"]
+    },
+    "AES-192-CBC": {
+        "desc": "AES 192-bit · CBC Mode",
+        "detail": "Block cipher, 192-bit key, PKCS7 padding, CBC chaining",
+        "key_len": 24, "kdf": "pbkdf2",
+        "flow": ["Passphrase", "PBKDF2-SHA256 (200k iter)", "192-bit key + 16B IV", "PKCS7 Pad", "AES-CBC Encrypt", "Base64 Output"]
+    },
+    "AES-256-GCM-Scrypt": {
+        "desc": "AES-256-GCM + Scrypt KDF",
+        "detail": "Authenticated AES-256-GCM with memory-hard Scrypt key derivation",
+        "key_len": 32, "kdf": "scrypt",
+        "flow": ["Passphrase", "Scrypt (N=16384, r=8, p=1)", "256-bit key + 12B nonce", "AES-GCM Encrypt + Auth Tag", "Base64 Output"]
+    },
+    "3DES-CBC": {
+        "desc": "Triple DES · CBC Mode",
+        "detail": "Legacy 3DES, 24-byte key (168-bit effective), CBC mode, PKCS7",
+        "key_len": 24, "kdf": "pbkdf2",
+        "flow": ["Passphrase", "PBKDF2-SHA256 (200k iter)", "168-bit key + 8B IV", "PKCS7 Pad", "3DES-CBC Encrypt", "Base64 Output"]
+    },
+}
+
+# ─── Encrypt Core ─────────────────────────────────────────────────────────────
+def do_encrypt(plaintext: str, passphrase: str, algo: str) -> str:
+    cfg = ALGORITHMS[algo]
     data = plaintext.encode()
     salt = os.urandom(16)
+    key = derive_key(passphrase, salt, cfg["key_len"], cfg["kdf"])
 
-    if level == "Easy":
-        # AES-128-CBC
-        key = derive_key(key_str, salt, 16)
-        iv  = os.urandom(16)
+    if algo in ("AES-128-CBC", "AES-256-CBC", "AES-192-CBC"):
+        iv = os.urandom(16)
         pad = sym_padding.PKCS7(128).padder()
         padded = pad.update(data) + pad.finalize()
-        cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
-        ct = cipher.encryptor().update(padded) + cipher.encryptor().finalize()
-        # redo with proper encryptor
         enc = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend()).encryptor()
         ct = enc.update(padded) + enc.finalize()
-        algo_name = "AES-128-CBC"
-        payload = json.dumps({"algo": algo_name, "salt": b64e(salt), "iv": b64e(iv), "ct": b64e(ct)})
+        payload = {"algo": algo, "salt": b64e(salt), "iv": b64e(iv), "ct": b64e(ct)}
 
-    elif level == "Medium":
-        # AES-256-GCM
-        key = derive_key(key_str, salt, 32)
-        iv  = os.urandom(12)
-        enc = Cipher(algorithms.AES(key), modes.GCM(iv), backend=default_backend()).encryptor()
-        ct  = enc.update(data) + enc.finalize()
+    elif algo in ("AES-256-GCM", "AES-128-GCM", "AES-256-GCM-Scrypt"):
+        nonce = os.urandom(12)
+        enc = Cipher(algorithms.AES(key), modes.GCM(nonce), backend=default_backend()).encryptor()
+        ct = enc.update(data) + enc.finalize()
         tag = enc.tag
-        algo_name = "AES-256-GCM"
-        payload = json.dumps({"algo": algo_name, "salt": b64e(salt), "iv": b64e(iv),
-                               "ct": b64e(ct), "tag": b64e(tag)})
+        payload = {"algo": algo, "salt": b64e(salt), "nonce": b64e(nonce), "ct": b64e(ct), "tag": b64e(tag)}
 
-    else:  # Hard → ChaCha20-Poly1305
-        key = derive_key(key_str, salt, 32)
+    elif algo in ("ChaCha20", "ChaCha20-Scrypt"):
         nonce = os.urandom(16)
-        algo  = algorithms.ChaCha20(key, nonce)
-        enc   = Cipher(algo, mode=None, backend=default_backend()).encryptor()
-        ct    = enc.update(data) + enc.finalize()
-        algo_name = "ChaCha20"
-        payload = json.dumps({"algo": algo_name, "salt": b64e(salt), "nonce": b64e(nonce), "ct": b64e(ct)})
+        enc = Cipher(algorithms.ChaCha20(key, nonce), mode=None, backend=default_backend()).encryptor()
+        ct = enc.update(data) + enc.finalize()
+        payload = {"algo": algo, "salt": b64e(salt), "nonce": b64e(nonce), "ct": b64e(ct)}
 
-    return b64e(payload.encode()), algo_name
+    elif algo == "AES-256-CTR":
+        nonce = os.urandom(16)
+        enc = Cipher(algorithms.AES(key), modes.CTR(nonce), backend=default_backend()).encryptor()
+        ct = enc.update(data) + enc.finalize()
+        payload = {"algo": algo, "salt": b64e(salt), "nonce": b64e(nonce), "ct": b64e(ct)}
 
+    elif algo == "3DES-CBC":
+        iv = os.urandom(8)
+        pad = sym_padding.PKCS7(64).padder()
+        padded = pad.update(data) + pad.finalize()
+        enc = Cipher(algorithms.TripleDES(key), modes.CBC(iv), backend=default_backend()).encryptor()
+        ct = enc.update(padded) + enc.finalize()
+        payload = {"algo": algo, "salt": b64e(salt), "iv": b64e(iv), "ct": b64e(ct)}
 
-def sym_decrypt(ciphertext_b64: str, key_str: str):
-    payload = json.loads(b64d(ciphertext_b64).decode())
-    algo    = payload["algo"]
-
-    if run:
-            if not user_data.strip():
-                    st.markdown('<div class="info-card error"><div class="card-label">Error</div>No data provided.</div>', unsafe_allow_html=True)
-                    st.toast("Please enter the required data!", icon="❗")
-            else:
-                    try:
-                            with st.spinner("✨ Crunching cryptography magic…"):
-                                    time.sleep(0.7)  # longer pause for drama
-
-                                    if mode == "Encrypt":
-                                            if method == "Symmetric":
-                                                    if not key_input:
-                                                            st.error("Please enter a passphrase.")
-                                                            st.toast("Passphrase required!", icon="🔑")
-                                                            st.stop()
-                                                    ct_b64, algo_used = sym_encrypt(user_data, key_input, level)
-                                                    key_display = f"(passphrase — keep secret)"
-                                            else:  # Asymmetric
-                                                    if not pub_key_input:
-                                                            st.error("Please enter a public key.")
-                                                            st.toast("Public key required!", icon="🗝️")
-                                                            st.stop()
-                                                    ct_b64, algo_used = asym_encrypt(user_data, pub_key_input.strip(), level)
-                                                    fp = hashlib.sha256(pub_key_input.strip().encode()).hexdigest()[:16].upper()
-                                                    key_display = f"Public Key fingerprint: {fp}"
-
-                                            st.balloons()
-                                            st.markdown("### ✅ Encryption Successful")
-                                            st.markdown(f"""
-    <div class="info-card success">
-        <div class="card-label">Algorithm Used</div>
-        <div class="card-value green">{algo_used}</div>
-    </div>
-    <div class="info-card">
-        <div class="card-label">Key Info</div>
-        <div class="card-value white">{key_display}</div>
-    </div>
-    <div class="info-card">
-        <div class="card-label">Encrypted Message (Base64) — copy this for decryption</div>
-        <div class="card-value" style="word-break:break-all">{ct_b64}</div>
-    </div>
-    <div class="info-card">
-        <div class="card-label">Ciphertext Length</div>
-        <div class="card-value white">{len(ct_b64)} characters</div>
-    </div>
-    <div class="info-card">
-        <div class="card-label">Method</div>
-        <div class="card-value white">{"Symmetric (shared secret key)" if method == "Symmetric" else "Asymmetric (public/private key pair)"}</div>
-    </div>
-    <div class="info-card warning">
-        <div class="card-label">Security Summary</div>
-        <div class="card-value" style="color:#ffb300">Level: {level} &nbsp;|&nbsp; Algorithm: {algo_used} &nbsp;|&nbsp; Method: {method}</div>
-        <div style="color:var(--muted);font-size:0.72rem;margin-top:0.4rem">
-            Share the encrypted message with the recipient. Keep your {"passphrase" if method == "Symmetric" else "private key"} secret.
-        </div>
-    </div>
-                                            """, unsafe_allow_html=True)
-                                            st.text_area("📋 Copy Ciphertext", value=ct_b64, height=120)
-                                            st.toast("Encryption complete!", icon="🔐")
-
-                                    else:  # Decrypt
-                                            if method == "Symmetric":
-                                                    if not key_input:
-                                                            st.error("Please enter the passphrase.")
-                                                            st.toast("Passphrase required!", icon="🔑")
-                                                            st.stop()
-                                                    plaintext, algo_used = sym_decrypt(user_data.strip(), key_input)
-                                            else:
-                                                    if not priv_key_input:
-                                                            st.error("Please enter the private key.")
-                                                            st.toast("Private key required!", icon="🗝️")
-                                                            st.stop()
-                                                    plaintext, algo_used = asym_decrypt(user_data.strip(), priv_key_input.strip())
-                                            st.snow()
-                                            st.markdown("### ✅ Decryption Successful")
-                                            st.markdown(f"""
-    <div class="info-card success">
-        <div class="card-label">Algorithm Detected</div>
-        <div class="card-value green">{algo_used}</div>
-    </div>
-    <div class="info-card">
-        <div class="card-label">Decrypted Plaintext</div>
-        <div class="card-value white" style="font-size:1rem;line-height:1.7">{plaintext}</div>
-    </div>
-    <div class="info-card">
-        <div class="card-label">Method</div>
-        <div class="card-value white">{"Symmetric" if method == "Symmetric" else "Asymmetric"}</div>
-    </div>
-                                            """, unsafe_allow_html=True)
-                                            st.text_area("📋 Decrypted Message", value=plaintext, height=100)
-                                            st.toast("Decryption complete!", icon="🔓")
-
-                    except Exception as e:
-                            st.markdown(f'<div class="info-card error"><div class="card-label">Error</div><div class="card-value" style="color:var(--red)">{str(e)}</div></div>', unsafe_allow_html=True)
-                            st.toast("An error occurred!", icon="❌")
-
-mode = st.radio("", ["🔒  Encrypt", "🔓  Decrypt"], horizontal=True, label_visibility="collapsed")
-mode = "Encrypt" if "Encrypt" in mode else "Decrypt"
-
-st.markdown('<hr class="divider">', unsafe_allow_html=True)
-
-# ── Step 2: Method ───────────────────────────────────────────────────────────
-st.markdown('<div class="section-header"><span class="section-num">02</span><span class="section-title">Cryptographic Method</span></div>', unsafe_allow_html=True)
-
-method = st.radio("", ["🔑  Symmetric", "🗝️  Asymmetric"], horizontal=True, label_visibility="collapsed")
-method = "Symmetric" if "Symmetric" in method else "Asymmetric"
-
-st.markdown('<hr class="divider">', unsafe_allow_html=True)
-
-# ── Step 3: Keys ─────────────────────────────────────────────────────────────
-st.markdown('<div class="section-header"><span class="section-num">03</span><span class="section-title">Key Configuration</span></div>', unsafe_allow_html=True)
-
-key_input = None
-pub_key_input = None
-priv_key_input = None
-
-if method == "Symmetric":
-    if mode == "Encrypt":
-        key_input = st.text_input("Secret Passphrase (shared key)", type="password",
-                                  placeholder="Enter a strong passphrase…")
     else:
-        key_input = st.text_input("Secret Passphrase (must match encryption key)", type="password",
-                                  placeholder="Enter the passphrase used during encryption…")
+        raise ValueError(f"Unknown algorithm: {algo}")
 
-else:  # Asymmetric
-    # Key generator helper
-    with st.expander("⚡ Generate RSA-2048 Key Pair (for testing)"):
-        if st.button("Generate New Key Pair"):
-            priv_pem, pub_pem = gen_rsa_keypair()
-            st.session_state["gen_priv"] = priv_pem
-            st.session_state["gen_pub"]  = pub_pem
+    return b64e(json.dumps(payload).encode())
 
-        if "gen_pub" in st.session_state:
-            st.markdown('<div class="info-card"><div class="card-label">Public Key</div><div class="card-value">' +
-                        st.session_state["gen_pub"].replace("\n", "<br>") + '</div></div>', unsafe_allow_html=True)
-            st.markdown('<div class="info-card"><div class="card-label">Private Key</div><div class="card-value">' +
-                        st.session_state["gen_priv"].replace("\n", "<br>") + '</div></div>', unsafe_allow_html=True)
 
-    if mode == "Encrypt":
-        pub_key_input = st.text_area("Public Key (PEM format)", height=180,
-                                     placeholder="-----BEGIN PUBLIC KEY-----\n…\n-----END PUBLIC KEY-----")
+# ─── Decrypt Core ─────────────────────────────────────────────────────────────
+def do_decrypt(ciphertext_b64: str, passphrase: str) -> tuple[str, str]:
+    try:
+        payload = json.loads(b64d(ciphertext_b64).decode())
+    except Exception:
+        raise ValueError("Invalid ciphertext — could not parse encrypted payload.")
+
+    algo = payload.get("algo")
+    if not algo or algo not in ALGORITHMS:
+        raise ValueError(f"Unknown or missing algorithm tag in payload: {algo}")
+
+    cfg = ALGORITHMS[algo]
+    salt = b64d(payload["salt"])
+    key = derive_key(passphrase, salt, cfg["key_len"], cfg["kdf"])
+
+    if algo in ("AES-128-CBC", "AES-256-CBC", "AES-192-CBC"):
+        iv = b64d(payload["iv"])
+        ct = b64d(payload["ct"])
+        dec = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend()).decryptor()
+        padded = dec.update(ct) + dec.finalize()
+        unpad = sym_padding.PKCS7(128).unpadder()
+        pt = unpad.update(padded) + unpad.finalize()
+
+    elif algo in ("AES-256-GCM", "AES-128-GCM", "AES-256-GCM-Scrypt"):
+        nonce = b64d(payload["nonce"])
+        ct = b64d(payload["ct"])
+        tag = b64d(payload["tag"])
+        dec = Cipher(algorithms.AES(key), modes.GCM(nonce, tag), backend=default_backend()).decryptor()
+        pt = dec.update(ct) + dec.finalize()
+
+    elif algo in ("ChaCha20", "ChaCha20-Scrypt"):
+        nonce = b64d(payload["nonce"])
+        ct = b64d(payload["ct"])
+        dec = Cipher(algorithms.ChaCha20(key, nonce), mode=None, backend=default_backend()).decryptor()
+        pt = dec.update(ct) + dec.finalize()
+
+    elif algo == "AES-256-CTR":
+        nonce = b64d(payload["nonce"])
+        ct = b64d(payload["ct"])
+        dec = Cipher(algorithms.AES(key), modes.CTR(nonce), backend=default_backend()).decryptor()
+        pt = dec.update(ct) + dec.finalize()
+
+    elif algo == "3DES-CBC":
+        iv = b64d(payload["iv"])
+        ct = b64d(payload["ct"])
+        dec = Cipher(algorithms.TripleDES(key), modes.CBC(iv), backend=default_backend()).decryptor()
+        padded = dec.update(ct) + dec.finalize()
+        unpad = sym_padding.PKCS7(64).unpadder()
+        pt = unpad.update(padded) + unpad.finalize()
+
     else:
-        priv_key_input = st.text_area("Private Key (PEM format)", height=200,
-                                      placeholder="-----BEGIN RSA PRIVATE KEY-----\n…\n-----END RSA PRIVATE KEY-----")
+        raise ValueError(f"Unsupported algorithm: {algo}")
 
-st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    return pt.decode(), algo
 
-# ── Step 4 (Encrypt only): Security Level ────────────────────────────────────
-level = None
+
+# ─── UI ───────────────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="hero">
+  <div class="hero-title">🔐 CIPHERCORE</div>
+  <div class="hero-sub">10-Algorithm Cryptography Suite · Auto-Detection Decrypt · Zero Storage</div>
+</div>
+""", unsafe_allow_html=True)
+
+# Mode toggle
+st.markdown('<div class="sec-header"><span class="sec-num">01</span><span class="sec-title">Operation Mode</span></div>', unsafe_allow_html=True)
+mode_raw = st.radio("", ["🔒  Encrypt", "🔓  Decrypt"], horizontal=True, label_visibility="collapsed")
+mode = "Encrypt" if "Encrypt" in mode_raw else "Decrypt"
+
+st.markdown('<hr class="div">', unsafe_allow_html=True)
+
+# ── ENCRYPT FLOW ──────────────────────────────────────────────────────────────
 if mode == "Encrypt":
-    st.markdown('<div class="section-header"><span class="section-num">04</span><span class="section-title">Security Level</span></div>', unsafe_allow_html=True)
 
-    LEVELS = {
-        "Easy":   ("AES-128-CBC" if method == "Symmetric" else "RSA-OAEP-SHA256", "Fastest · 128-bit · Good for low-sensitivity data"),
-        "Medium": ("AES-256-GCM" if method == "Symmetric" else "RSA-OAEP-SHA384", "Balanced · 256-bit authenticated · Recommended"),
-        "Hard":   ("ChaCha20"    if method == "Symmetric" else "RSA-OAEP-SHA512", "Maximum · Stream cipher / SHA-512 · High-sensitivity data"),
-    }
+    # Algorithm picker
+    st.markdown('<div class="sec-header"><span class="sec-num">02</span><span class="sec-title">Choose Encryption Algorithm</span></div>', unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns(3)
-    level_choice = None
-    with col1:
-        if st.button("🟢  Easy"):  level_choice = "Easy"
-    with col2:
-        if st.button("🟡  Medium"): level_choice = "Medium"
-    with col3:
-        if st.button("🔴  Hard"):  level_choice = "Hard"
+    algo_names = list(ALGORITHMS.keys())
+    if "chosen_algo" not in st.session_state:
+        st.session_state["chosen_algo"] = "AES-256-GCM"
 
-    if "level" not in st.session_state:
-        st.session_state["level"] = "Medium"
-    if level_choice:
-        st.session_state["level"] = level_choice
+    # Display as selectbox (clean, no JS needed)
+    chosen_algo = st.selectbox(
+        "Select Algorithm",
+        algo_names,
+        index=algo_names.index(st.session_state["chosen_algo"]),
+        format_func=lambda x: f"{x}  —  {ALGORITHMS[x]['desc']}",
+        label_visibility="collapsed"
+    )
+    st.session_state["chosen_algo"] = chosen_algo
 
-    level = st.session_state["level"]
-    algo_preview, desc_preview = LEVELS[level]
+    cfg = ALGORITHMS[chosen_algo]
     st.markdown(f"""
-    <div class="info-card">
-      <div class="card-label">Selected Level</div>
-      <div class="card-value">{level} &nbsp;→&nbsp; {algo_preview}</div>
-      <div style="color:var(--muted);font-size:0.72rem;margin-top:0.3rem">{desc_preview}</div>
+    <div class="card">
+      <div class="lbl">Algorithm Details</div>
+      <div class="val">{chosen_algo}</div>
+      <div style="color:var(--muted);font-size:0.72rem;margin-top:0.3rem">{cfg['detail']}</div>
+      <div style="color:var(--muted);font-size:0.68rem;margin-top:0.2rem">KDF: {'Scrypt (memory-hard)' if cfg['kdf']=='scrypt' else 'PBKDF2-SHA256 (200k iterations)'} · Key: {cfg['key_len']*8}-bit</div>
     </div>
     """, unsafe_allow_html=True)
-    st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-# ── Step 5: Data ──────────────────────────────────────────────────────────────
-step_num = "05" if mode == "Encrypt" else "04"
-st.markdown(f'<div class="section-header"><span class="section-num">{step_num}</span><span class="section-title">{"Plaintext Input" if mode == "Encrypt" else "Ciphertext Input"}</span></div>', unsafe_allow_html=True)
+    st.markdown('<hr class="div">', unsafe_allow_html=True)
 
-if mode == "Encrypt":
-    user_data = st.text_area("Message / Data to Encrypt", height=140,
+    # Passphrase
+    st.markdown('<div class="sec-header"><span class="sec-num">03</span><span class="sec-title">Secret Passphrase</span></div>', unsafe_allow_html=True)
+    passphrase = st.text_input("Enter a strong passphrase (share this with the recipient)", type="password",
+                               placeholder="Minimum 12 characters recommended…")
+
+    strength_color = "var(--red)"
+    strength_label = "Weak"
+    if passphrase:
+        score = sum([len(passphrase) >= 8, len(passphrase) >= 14, any(c.isupper() for c in passphrase),
+                     any(c.isdigit() for c in passphrase), any(c in "!@#$%^&*()_+-=" for c in passphrase)])
+        if score >= 4:
+            strength_color, strength_label = "var(--green)", "Strong"
+        elif score >= 3:
+            strength_color, strength_label = "var(--yellow)", "Moderate"
+
+        st.markdown(f"""
+        <div style="font-family:'Share Tech Mono',monospace;font-size:0.68rem;color:{strength_color};
+                    letter-spacing:0.15em;margin:-0.3rem 0 0.5rem">
+            PASSPHRASE STRENGTH: {strength_label}
+        </div>""", unsafe_allow_html=True)
+
+    st.markdown('<hr class="div">', unsafe_allow_html=True)
+
+    # Message input
+    st.markdown('<div class="sec-header"><span class="sec-num">04</span><span class="sec-title">Plaintext Message</span></div>', unsafe_allow_html=True)
+    plaintext = st.text_area("Message to encrypt", height=150,
                              placeholder="Type or paste the message you want to encrypt…")
+
+    st.markdown('<hr class="div">', unsafe_allow_html=True)
+
+    if st.button("⚡  ENCRYPT MESSAGE"):
+        if not plaintext.strip():
+            st.markdown('<div class="card error"><div class="lbl">Error</div><div class="val" style="color:var(--red)">No message provided.</div></div>', unsafe_allow_html=True)
+        elif not passphrase:
+            st.markdown('<div class="card error"><div class="lbl">Error</div><div class="val" style="color:var(--red)">Passphrase is required.</div></div>', unsafe_allow_html=True)
+        else:
+            try:
+                with st.spinner("Encrypting…"):
+                    time.sleep(0.5)
+                    ct_b64 = do_encrypt(plaintext, passphrase, chosen_algo)
+
+                st.balloons()
+
+                # Build encryption flow steps
+                flow_steps = cfg["flow"]
+                flow_html = " ".join([
+                    f'<span class="flow-step">{s}</span>' + (f'<span class="flow-arrow">→</span>' if i < len(flow_steps)-1 else "")
+                    for i, s in enumerate(flow_steps)
+                ])
+
+                st.markdown(f"""
+                <div class="summary-wrap">
+                  <div class="summary-title">✅ ENCRYPTION SUCCESSFUL</div>
+                  <div class="summary-grid">
+
+                    <div class="s-item">
+                      <div class="s-lbl">Algorithm Used</div>
+                      <div class="s-val green">{chosen_algo}</div>
+                    </div>
+
+                    <div class="s-item">
+                      <div class="s-lbl">Key Derivation</div>
+                      <div class="s-val">{'Scrypt (N=16384)' if cfg['kdf']=='scrypt' else 'PBKDF2-SHA256 (200k)'}</div>
+                    </div>
+
+                    <div class="s-item">
+                      <div class="s-lbl">Effective Key Size</div>
+                      <div class="s-val">{cfg['key_len']*8} bits</div>
+                    </div>
+
+                    <div class="s-item">
+                      <div class="s-lbl">Ciphertext Length</div>
+                      <div class="s-val">{len(ct_b64)} characters</div>
+                    </div>
+
+                    <div class="s-item">
+                      <div class="s-lbl">Plaintext Length</div>
+                      <div class="s-val">{len(plaintext)} characters</div>
+                    </div>
+
+                    <div class="s-item">
+                      <div class="s-lbl">Algorithm Detail</div>
+                      <div class="s-val" style="font-size:0.72rem;color:var(--muted)">{cfg['detail']}</div>
+                    </div>
+
+                    <div class="s-item full">
+                      <div class="s-lbl">Encryption Flow</div>
+                      <div class="flow-box">{flow_html}</div>
+                    </div>
+
+                    <div class="s-item full">
+                      <div class="s-lbl">How it works</div>
+                      <div style="font-family:'Share Tech Mono',monospace;font-size:0.72rem;color:var(--muted);line-height:1.9;margin-top:0.3rem">
+                        1. A random <strong style="color:var(--text)">salt</strong> is generated and your passphrase is stretched into a cryptographic key using <strong style="color:var(--text)">{cfg['kdf'].upper()}</strong>.<br>
+                        2. A random <strong style="color:var(--text)">nonce/IV</strong> is generated for this message — each encryption is unique even with the same key.<br>
+                        3. The plaintext is encrypted using <strong style="color:var(--text)">{chosen_algo}</strong> producing indistinguishable ciphertext.<br>
+                        4. The salt, nonce/IV, algorithm tag, and ciphertext are bundled and Base64-encoded into the output token.<br>
+                        5. The recipient uses the same passphrase — the algorithm is <strong style="color:var(--accent)">auto-detected from the token</strong>; no manual selection needed.
+                      </div>
+                    </div>
+
+                    <div class="s-item full">
+                      <div class="s-lbl">⚠️ Security Note</div>
+                      <div style="color:var(--yellow);font-family:'Share Tech Mono',monospace;font-size:0.72rem;line-height:1.8">
+                        Share the <strong>Encrypted Token</strong> freely — it's safe to transmit.<br>
+                        Share the <strong>Passphrase</strong> only via a secure, separate channel (call, Signal, etc.).<br>
+                        Never send both in the same message/email.
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                st.markdown('<div class="sec-header"><span class="sec-num">↓</span><span class="sec-title">Copy Encrypted Token — Share This With Recipient</span></div>', unsafe_allow_html=True)
+                st.text_area("Encrypted Token (Base64)", value=ct_b64, height=160,
+                             help="Copy this entire string and give it to the person who needs to decrypt it.")
+                st.toast("Encryption complete! 🔐", icon="✅")
+
+            except Exception as e:
+                st.markdown(f'<div class="card error"><div class="lbl">Encryption Error</div><div class="val" style="color:var(--red)">{str(e)}</div></div>', unsafe_allow_html=True)
+
+# ── DECRYPT FLOW ──────────────────────────────────────────────────────────────
 else:
-    user_data = st.text_area("Encrypted Ciphertext (Base64)", height=140,
-                             placeholder="Paste the Base64-encoded ciphertext here…")
+    st.markdown("""
+    <div class="card purple">
+      <div class="lbl">Auto-Detection Mode</div>
+      <div class="val">Algorithm is automatically detected from the encrypted token — no manual selection needed.</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    st.markdown('<div class="sec-header"><span class="sec-num">02</span><span class="sec-title">Encrypted Token</span></div>', unsafe_allow_html=True)
+    ct_input = st.text_area("Paste the encrypted token here", height=160,
+                            placeholder="Paste the Base64 encrypted token received from the sender…")
 
-# ── Execute ───────────────────────────────────────────────────────────────────
-action_label = "⚡  ENCRYPT MESSAGE" if mode == "Encrypt" else "⚡  DECRYPT MESSAGE"
-run = st.button(action_label)
+    st.markdown('<hr class="div">', unsafe_allow_html=True)
 
-if run:
-    if not user_data.strip():
-        st.markdown('<div class="info-card error"><div class="card-label">Error</div>No data provided.</div>', unsafe_allow_html=True)
-    else:
-        try:
-            with st.spinner("Processing…"):
-                time.sleep(0.4)  # small dramatic pause
+    st.markdown('<div class="sec-header"><span class="sec-num">03</span><span class="sec-title">Passphrase</span></div>', unsafe_allow_html=True)
+    dec_pass = st.text_input("Enter the passphrase shared by the sender", type="password",
+                             placeholder="Enter the shared passphrase…")
 
-                if mode == "Encrypt":
-                    if method == "Symmetric":
-                        if not key_input:
-                            st.error("Please enter a passphrase.")
-                            st.stop()
-                        ct_b64, algo_used = sym_encrypt(user_data, key_input, level)
-                        key_display = f"(passphrase — keep secret)"
+    st.markdown('<hr class="div">', unsafe_allow_html=True)
 
-                    else:  # Asymmetric
-                        if not pub_key_input:
-                            st.error("Please enter a public key.")
-                            st.stop()
-                        ct_b64, algo_used = asym_encrypt(user_data, pub_key_input.strip(), level)
-                        fp = hashlib.sha256(pub_key_input.strip().encode()).hexdigest()[:16].upper()
-                        key_display = f"Public Key fingerprint: {fp}"
+    if st.button("⚡  DECRYPT MESSAGE"):
+        if not ct_input.strip():
+            st.markdown('<div class="card error"><div class="lbl">Error</div><div class="val" style="color:var(--red)">No encrypted token provided.</div></div>', unsafe_allow_html=True)
+        elif not dec_pass:
+            st.markdown('<div class="card error"><div class="lbl">Error</div><div class="val" style="color:var(--red)">Passphrase is required.</div></div>', unsafe_allow_html=True)
+        else:
+            try:
+                with st.spinner("Decrypting…"):
+                    time.sleep(0.4)
+                    plaintext_out, algo_detected = do_decrypt(ct_input.strip(), dec_pass)
 
-                    # Display result
-                    st.markdown("### ✅ Encryption Successful")
-                    st.markdown(f"""
-<div class="info-card success">
-  <div class="card-label">Algorithm Used</div>
-  <div class="card-value green">{algo_used}</div>
-</div>
-<div class="info-card">
-  <div class="card-label">Key Info</div>
-  <div class="card-value white">{key_display}</div>
-</div>
-<div class="info-card">
-  <div class="card-label">Encrypted Message (Base64) — copy this for decryption</div>
-  <div class="card-value" style="word-break:break-all">{ct_b64}</div>
-</div>
-<div class="info-card">
-  <div class="card-label">Ciphertext Length</div>
-  <div class="card-value white">{len(ct_b64)} characters</div>
-</div>
-<div class="info-card">
-  <div class="card-label">Method</div>
-  <div class="card-value white">{"Symmetric (shared secret key)" if method == "Symmetric" else "Asymmetric (public/private key pair)"}</div>
-</div>
-<div class="info-card warning">
-  <div class="card-label">Security Summary</div>
-  <div class="card-value" style="color:#ffb300">Level: {level} &nbsp;|&nbsp; Algorithm: {algo_used} &nbsp;|&nbsp; Method: {method}</div>
-  <div style="color:var(--muted);font-size:0.72rem;margin-top:0.4rem">
-    Share the encrypted message with the recipient. Keep your {"passphrase" if method == "Symmetric" else "private key"} secret.
-  </div>
-</div>
-                    """, unsafe_allow_html=True)
+                st.snow()
+                cfg_d = ALGORITHMS[algo_detected]
 
-                    # Also show in a copyable text area
-                    st.text_area("📋 Copy Ciphertext", value=ct_b64, height=120)
+                st.markdown(f"""
+                <div class="summary-wrap">
+                  <div class="summary-title">🔓 DECRYPTION SUCCESSFUL</div>
+                  <div class="summary-grid">
 
-                else:  # Decrypt
-                    if method == "Symmetric":
-                        if not key_input:
-                            st.error("Please enter the passphrase.")
-                            st.stop()
-                        plaintext, algo_used = sym_decrypt(user_data.strip(), key_input)
+                    <div class="s-item">
+                      <div class="s-lbl">Algorithm Detected</div>
+                      <div class="s-val green">{algo_detected}</div>
+                    </div>
 
-                    else:
-                        if not priv_key_input:
-                            st.error("Please enter the private key.")
-                            st.stop()
-                        plaintext, algo_used = asym_decrypt(user_data.strip(), priv_key_input.strip())
+                    <div class="s-item">
+                      <div class="s-lbl">Key Derivation</div>
+                      <div class="s-val">{'Scrypt (N=16384)' if cfg_d['kdf']=='scrypt' else 'PBKDF2-SHA256 (200k)'}</div>
+                    </div>
 
-                    st.markdown("### ✅ Decryption Successful")
-                    st.markdown(f"""
-<div class="info-card success">
-  <div class="card-label">Algorithm Detected</div>
-  <div class="card-value green">{algo_used}</div>
-</div>
-<div class="info-card">
-  <div class="card-label">Decrypted Plaintext</div>
-  <div class="card-value white" style="font-size:1rem;line-height:1.7">{plaintext}</div>
-</div>
-<div class="info-card">
-  <div class="card-label">Method</div>
-  <div class="card-value white">{"Symmetric" if method == "Symmetric" else "Asymmetric"}</div>
-</div>
-                    """, unsafe_allow_html=True)
-                    st.text_area("📋 Decrypted Message", value=plaintext, height=100)
+                    <div class="s-item">
+                      <div class="s-lbl">Effective Key Size</div>
+                      <div class="s-val">{cfg_d['key_len']*8} bits</div>
+                    </div>
 
-        except Exception as e:
-            st.markdown(f'<div class="info-card error"><div class="card-label">Error</div><div class="card-value" style="color:var(--red)">{str(e)}</div></div>', unsafe_allow_html=True)
+                    <div class="s-item">
+                      <div class="s-lbl">Algorithm Detail</div>
+                      <div class="s-val" style="font-size:0.72rem;color:var(--muted)">{cfg_d['detail']}</div>
+                    </div>
 
-# ── Footer ────────────────────────────────────────────────────────────────────
+                    <div class="s-item full">
+                      <div class="s-lbl">Decrypted Message</div>
+                      <div class="s-val white" style="margin-top:0.4rem;font-size:1rem;line-height:1.8;
+                           background:rgba(0,255,170,0.04);border:1px solid rgba(0,255,170,0.15);
+                           border-radius:2px;padding:0.8rem 1rem">
+                        {plaintext_out}
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                st.markdown('<div class="sec-header"><span class="sec-num">↓</span><span class="sec-title">Decrypted Message</span></div>', unsafe_allow_html=True)
+                st.text_area("Plaintext", value=plaintext_out, height=120)
+                st.toast("Decryption complete! 🔓", icon="✅")
+
+            except Exception as e:
+                err = str(e)
+                hint = ""
+                if "padding" in err.lower() or "mac" in err.lower() or "tag" in err.lower():
+                    hint = " — Likely incorrect passphrase or corrupted ciphertext."
+                elif "invalid" in err.lower():
+                    hint = " — Token may be malformed or incomplete."
+                st.markdown(f'<div class="card error"><div class="lbl">Decryption Failed</div><div class="val" style="color:var(--red)">{err}{hint}</div></div>', unsafe_allow_html=True)
+                st.toast("Decryption failed ❌", icon="❗")
+
+# ── Footer ─────────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style="text-align:center;margin-top:3rem;padding:1.5rem 0;border-top:1px solid var(--border)">
-  <div style="font-family:'Share Tech Mono',monospace;font-size:0.65rem;color:var(--muted);letter-spacing:0.2em">
-    CIPHERCORE · CRYPTOGRAPHY & NETWORK SECURITY SUITE · NO DATA STORED
+<div style="text-align:center;margin-top:3.5rem;padding:1.5rem 0;border-top:1px solid var(--border)">
+  <div style="font-family:'Share Tech Mono',monospace;font-size:0.62rem;color:var(--muted);letter-spacing:0.22em">
+    CIPHERCORE · 10-ALGORITHM SUITE · AES · CHACHA20 · 3DES · SCRYPT · PBKDF2 · NO DATA STORED
   </div>
-  <div style="font-size:0.65rem;color:#2a3a4a;margin-top:0.3rem">
-    All operations run client-side in memory only
+  <div style="font-size:0.62rem;color:#1e2a38;margin-top:0.3rem">
+    All cryptographic operations run locally in memory · Keys never leave this session
   </div>
 </div>
 """, unsafe_allow_html=True)
